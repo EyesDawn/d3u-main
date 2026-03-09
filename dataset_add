@@ -1,0 +1,7 @@
+Add dataset:
+dataset/electricity/electricity.csv
+dataset/ETT-small/ETTm1.csv
+dataset/ETT-small/ETTm2.csv
+dataset/Solar/solar_AL.txt
+dataset/traffic/traffic.csv
+dataset/weather/weather.csv
