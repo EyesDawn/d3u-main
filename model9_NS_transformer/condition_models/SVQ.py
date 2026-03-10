@@ -50,7 +50,8 @@ class Model(nn.Module):
                                   attn_mask=attn_mask, res_attention=res_attention, pre_norm=pre_norm, store_attn=store_attn,
                                   pe=pe, learn_pe=learn_pe, fc_dropout=fc_dropout, head_dropout=head_dropout, padding_patch = padding_patch,
                                   pretrain_head=pretrain_head, head_type=head_type, individual=individual, sout =sout, revin=revin, affine=affine,
-                                  subtract_last=subtract_last, verbose=verbose, **kwargs)
+                                  subtract_last=subtract_last, verbose=verbose,
+                                  use_uncertainty=getattr(configs, 'use_uncertainty', False), **kwargs)
 
         # Series decomposition
         self.decomposition = configs.decomposition
@@ -69,7 +70,7 @@ class Model(nn.Module):
             x = trend + seasonal
 
         x = x.permute(0,2,1)
-        x, loss, enc_out, vq_details_lst = self.model(x, vq_details=vq_details)     # enc_out : [bsz x nvars x d_model x patch_num]
+        x, loss, enc_out, sigma, vq_details_lst = self.model(x, vq_details=vq_details)     # enc_out : [bsz x nvars x d_model x patch_num]
     
         x = x.permute(0,2,1)                                                        # x: [bsz x pred len x nvars]
         enc_out = enc_out.permute(0, 1, 3, 2)                                       # enc_out : [bsz x nvars x patch_num x d_model]
@@ -81,4 +82,4 @@ class Model(nn.Module):
             print('distance.shape = ', vq_details_lst[1].shape)'''
 
         # return x, loss, vq_details_lst  # for Case_study.ipynb
-        return x, loss,enc_out 
+        return x, loss, enc_out, sigma

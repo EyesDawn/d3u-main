@@ -159,6 +159,7 @@ if __name__ == '__main__':
     parser.add_argument('--from_scrach', action='store_true', help='')#对应实验 从0开始训练
     parser.add_argument('--scrach_10_stop', action='store_true', help='')#对应实验 从0开始训练
     parser.add_argument('--bias_y_0', action='store_true', help='') #对应实验 条件模型建模T+S,扩散模型建模残差
+    parser.add_argument('--use_uncertainty', action='store_true', help='enable uncertainty estimation head in SVQ and NLL loss')
 
     args = parser.parse_args()
 

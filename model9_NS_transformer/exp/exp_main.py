@@ -156,7 +156,7 @@ class Exp_Main(Exp_Basic):
 
 
 
-                y_T_mean,_,enc_out= self.cond_pred_model(batch_x, None, dec_inp, None)  
+                y_T_mean,_,enc_out,sigma= self.cond_pred_model(batch_x, None, dec_inp, None)  
                 if self.args.use_pretraining_condition:
                     enc_out=y_T_mean
 
@@ -180,7 +180,7 @@ class Exp_Main(Exp_Basic):
 
                 y_t = self.model.q_sample( y_0, t, noise=e)
 
-                output= self.model( y_t, t,enc_out)
+                output = self.model(y_t, t, enc_out, sigma)
 
 
                 f_dim = -1 if self.args.features == 'MS' else 0
@@ -192,9 +192,14 @@ class Exp_Main(Exp_Basic):
                 elif self.args.parameterization == "x_start":
                     target = y_0
 
-                loss = criterion(output,target)
-
-                loss = loss.detach().cpu()
+                diffusion_loss = criterion(output, target)
+                if self.args.use_uncertainty and sigma is not None:
+                    nll_loss = (torch.log(sigma[:, :, f_dim:]) +
+                                (batch_y - y_T_mean[:, :, f_dim:]).pow(2) /
+                                (2 * sigma[:, :, f_dim:].pow(2))).mean()
+                    loss = (diffusion_loss + nll_loss).detach().cpu()
+                else:
+                    loss = diffusion_loss.detach().cpu()
                 total_loss.append(loss)
         total_loss = np.average(total_loss)
         self.model.train()
@@ -264,7 +269,7 @@ class Exp_Main(Exp_Basic):
 
                 t = torch.cat([t, self.model.num_timesteps - 1 - t], dim=0)[:n] .to(self.device)             #t: [batch]
 
-                y_T_mean,_,enc_out= self.cond_pred_model(batch_x, None, dec_inp, None)  
+                y_T_mean,_,enc_out,sigma= self.cond_pred_model(batch_x, None, dec_inp, None)  
                 if self.args.use_pretraining_condition:
                     enc_out=y_T_mean
 
@@ -292,7 +297,7 @@ class Exp_Main(Exp_Basic):
 
                 y_t = self.model.q_sample( y_0, t, noise=e)
 
-                output= self.model( y_t, t,enc_out)
+                output = self.model(y_t, t, enc_out, sigma)
 
 
                 f_dim = -1 if self.args.features == 'MS' else 0
@@ -303,7 +308,14 @@ class Exp_Main(Exp_Basic):
                     target = e
                 elif self.args.parameterization == "x_start":
                     target = y_0
-                loss = (target - output).square().mean() 
+                diffusion_loss = (target - output).square().mean()
+                if self.args.use_uncertainty and sigma is not None:
+                    nll_loss = (torch.log(sigma[:, :, f_dim:]) +
+                                (batch_y - y_T_mean[:, :, f_dim:]).pow(2) /
+                                (2 * sigma[:, :, f_dim:].pow(2))).mean()
+                    loss = diffusion_loss + nll_loss
+                else:
+                    loss = diffusion_loss
 
                 train_loss.append(loss.item())
 
@@ -502,7 +514,7 @@ class Exp_Main(Exp_Basic):
                 dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
                 # encoder - decoder
  
-                y_T_mean,_,enc_out= self.cond_pred_model(batch_x, None, dec_inp, None)  
+                y_T_mean,_,enc_out,sigma= self.cond_pred_model(batch_x, None, dec_inp, None)  
 
                 #y_T_mean: [bs x  pred_len x nvars] enc_out:  [ bsz x n_vars x patch_num  x d_model ]
                 y_true_bias=batch_y[:, -self.args.pred_len:, :]-y_T_mean
@@ -523,7 +535,12 @@ class Exp_Main(Exp_Basic):
 
 
                     y_T_mean_tile = y_T_mean.repeat(repeat_n, 1, 1, 1)
-                    y_T_mean_tile = y_T_mean_tile.transpose(0, 1).flatten(0, 1).to(self.device) 
+                    y_T_mean_tile = y_T_mean_tile.transpose(0, 1).flatten(0, 1).to(self.device)
+
+                    sigma_tile = None
+                    if sigma is not None:
+                        sigma_tile = sigma.repeat(repeat_n, 1, 1, 1)
+                        sigma_tile = sigma_tile.transpose(0, 1).flatten(0, 1).to(self.device)  # [bs*sample, pred_len, nvars]
 
                     y_shape=(x_tile.shape[0],self.args.pred_len,x_tile.shape[-1])                                    #y_shape: [bs*sample, pred_len, var]
                     
@@ -533,9 +550,9 @@ class Exp_Main(Exp_Basic):
 
                     #
                     if self.args.type_sampler == "none":
-                        y_tile_seq = self.model.p_sample_loop(y_T_mean_tile,enc_out_tile, y_shape)#(如果预测x_0重新更改)
+                        y_tile_seq = self.model.p_sample_loop(y_T_mean_tile, enc_out_tile, y_shape, svq_sigma=sigma_tile)
                     elif self.args.type_sampler == "DDIM":
-                        y_tile_seq =self.model.fast_sample(y_T_mean_tile,enc_out_tile, y_shape,self.args.eta)#(如果预测x_0重新更改)
+                        y_tile_seq = self.model.fast_sample(y_T_mean_tile, enc_out_tile, y_shape, self.args.eta, svq_sigma=sigma_tile)
                     elif self.args.type_sampler == "DPM_solver":
                         
                         y_tile_seq = self.sampler.sample(S=self.args.DPMsolver_step,
@@ -545,7 +562,8 @@ class Exp_Main(Exp_Basic):
                                         unconditional_guidance_scale=1.0,
                                         unconditional_conditioning=None,
                                         eta=0.,
-                                        x_T=None)
+                                        x_T=None,
+                                        sigma=sigma_tile)
                     
                     y_tile_bias=y_tile_seq
                     if self.args.bias :
@@ -607,10 +625,10 @@ class Exp_Main(Exp_Basic):
                 del outputs 
                 gc.collect() 
 
-                if i % 1 == 0 and i != 0:
-                    print('Testing: %d/%d cost time: %f min' % (
-                        i, len(test_loader), (time.time() - minibatch_sample_start) / 60))
-                    minibatch_sample_start = time.time()
+                # if i % 1 == 0 and i != 0:
+                #     print('Testing: %d/%d cost time: %f min' % (
+                #         i, len(test_loader), (time.time() - minibatch_sample_start) / 60))
+                #     minibatch_sample_start = time.time()
 
                 # if i % 10 ==0:
                 #     y = batch_y[0,:,-1]

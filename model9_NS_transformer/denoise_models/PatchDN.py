@@ -136,7 +136,7 @@ class PatchDN(nn.Module):
         learn_sigma=False,
         pe='zeros',
         learn_pe=True,
-
+        use_uncertainty=False,
     ):
         super().__init__()
         self.learn_sigma = learn_sigma
@@ -171,6 +171,7 @@ class PatchDN(nn.Module):
             PatchDNBlock(self.hidden_size, self.num_heads, mlp_ratio=mlp_ratio) for _ in range(depth)
         ])
         self.final_layer = FinalLayer(self.hidden_size, patch_num, self.context_window)
+        self.use_uncertainty = use_uncertainty
         self.initialize_weights()
 
     def initialize_weights(self):
@@ -208,16 +209,18 @@ class PatchDN(nn.Module):
         nn.init.constant_(self.final_layer.linear.bias, 0)
 
 
-    def forward(self,x,t,y):
+    def forward(self, x, t, y, sigma=None):
         """
         Forward pass of DiT.
-        x: bs x pred_len x nvars       y_t
-        t: bs                           时间步
-        y: bs x pred_len x nvars       条件            
-
+        x:     bs x pred_len x nvars   y_t
+        t:     bs                      时间步
+        y:     condition               enc_out or y_T_mean
+        sigma: bs x pred_len x nvars   SVQ uncertainty (optional)
         """
-        x=x.permute(0,2,1)                                                        #x: [bs x nvars x pred_len]
+        if self.use_uncertainty and sigma is not None:
+            x = x / sigma.clamp(min=1e-5)  # optionally normalize x by uncertainty
         
+        x=x.permute(0,2,1)                                                        #x: [bs x nvars x pred_len]                                          #sigma: [bs x nvars x pred_len]
         bs, nvars,pred_len=x.shape
 
         # do patching
@@ -246,7 +249,10 @@ class PatchDN(nn.Module):
 
         x = self.final_layer(x, c)                                                  #  x: [bs * nvars x context_window]
 
-        x=x.reshape(bs, nvars, pred_len).permute(0,2,1) 
+        x=x.reshape(bs, nvars, pred_len).permute(0,2,1)
+
+        if self.use_uncertainty and sigma is not None:
+            x = x * sigma.clamp(min=1e-5)  # un-normalize output by uncertainty
         return x
 
 

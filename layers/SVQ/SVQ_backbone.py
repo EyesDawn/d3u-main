@@ -19,7 +19,7 @@ class SVQ_backbone(nn.Module):
                  padding_var:Optional[int]=None, attn_mask:Optional[Tensor]=None, res_attention:bool=True, pre_norm:bool=False, store_attn:bool=False,
                  pe:str='zeros', learn_pe:bool=True, fc_dropout:float=0., head_dropout = 0, padding_patch = None,
                  pretrain_head:bool=False, head_type = 'flatten', individual = False, sout=1, revin = True, affine = True, subtract_last = False,
-                 verbose:bool=False, **kwargs):
+                 verbose:bool=False, use_uncertainty:bool=False, **kwargs):
         
         super().__init__()
 
@@ -54,6 +54,15 @@ class SVQ_backbone(nn.Module):
             self.head = self.create_pretrain_head(self.head_nf, c_in, fc_dropout) # custom head passed as a partial func with all its kwargs
         elif head_type == 'flatten':
             self.head = Flatten_Head(self.head_nf, target_window, head_dropout)
+        
+        self.use_uncertainty = use_uncertainty
+        if use_uncertainty:
+            self.uncertainty_estimator = nn.Sequential(
+                nn.Linear(d_model, d_model // 2),
+                nn.ReLU(),
+                nn.Linear(d_model // 2, target_window),
+                nn.Softplus()  # 确保 sigma > 0
+            )
 
     def forward(self, z, vq_details=False):                                                                   # z: [bs x nvars x seq_len]
         # norm
@@ -71,13 +80,22 @@ class SVQ_backbone(nn.Module):
         enc_out, loss, vq_details_lst = self.backbone(z, vq_details)                        # z: [bs x nvars x d_model x patch_num]
         z = self.head(enc_out)                                                              # z: [bs x nvars x target_window]
 
+        # uncertainty estimation (optional)
+        if self.use_uncertainty:
+            sigma = self.uncertainty_estimator(enc_out.mean(-1))   # [bs x nvars x target_window]
+            sigma = sigma.permute(0, 2, 1)                         # [bs x target_window x nvars]
+            if self.revin:
+                sigma = sigma * self.revin_layer.stdev             # scale to original data space
+        else:
+            sigma = None
+
         # denorm
         z = z.permute(0,2,1)
         z = self.revin_layer(z, 'denorm')
         z = z.permute(0,2,1)
         if self.sout: z = self.sl(z)
         
-        return z, loss, enc_out, vq_details_lst
+        return z, loss, enc_out, sigma, vq_details_lst
 
     
     def create_pretrain_head(self, head_nf, vars, dropout):

@@ -98,7 +98,8 @@ class Model(nn.Module):
         if self.args.denoise_model=='MLP':
             self.diffussion_model = MLP(diffusion_config, self.args)
         elif self.args.denoise_model=='PatchDN':
-            self.diffussion_model = PatchDN(MTS_args=self.args,depth=self.args.depth, mlp_ratio=1.0)
+            self.diffussion_model = PatchDN(MTS_args=self.args, depth=self.args.depth, mlp_ratio=1.0,
+                                            use_uncertainty=getattr(self.args, 'use_uncertainty', False))
         elif self.args.denoise_model=='CNN':
             self.diffussion_model = CNN_DiffusionUnet(diffusion_config, self.args)
 
@@ -140,7 +141,7 @@ class Model(nn.Module):
         return y_t
 
     @torch.no_grad()
-    def fast_sample(self,y_T_mean,enc_out, y_shape,eta):
+    def fast_sample(self, y_T_mean, enc_out, y_shape, eta, svq_sigma=None):
             device=enc_out.device
             batch= y_shape[0]
             alphas_cumprod,sqrt_recip_alphas_cumprod,sqrt_recipm1_alphas_cumprod=self.alphas_cumprod.to(device),self.sqrt_recip_alphas_cumprod.to(device),self.sqrt_recipm1_alphas_cumprod.to(device)
@@ -156,7 +157,7 @@ class Model(nn.Module):
                 time_cond = torch.full((batch,), time,device=device, dtype=torch.long)
                     
                 y_t=img                                                    # y_t: [bs x nvars x pred_len]
-                pred_noise = self.diffussion_model(y_t, time_cond,enc_out)                    # dec_out: [bs x nvars x pred_len]                 # dec_out: [bs x nvars x pred_len]
+                pred_noise = self.diffussion_model(y_t, time_cond, enc_out, sigma=svq_sigma)  # dec_out: [bs x nvars x pred_len]
                 # pred_noise=(extract(sqrt_recip_alphas_cumprod, time_cond, img) * img - x_start) /extract(sqrt_recipm1_alphas_cumprod, time_cond, img)
                 x_start= self.predict_start_from_noise(y_t,time_cond, pred_noise)
                 # x_start=(extract(sqrt_recip_alphas_cumprod, time_cond, img) * img -extract(sqrt_recipm1_alphas_cumprod, time_cond, img) * pred_noise)
@@ -178,7 +179,7 @@ class Model(nn.Module):
 
             return img
 
-    def p_sample(self, enc_out,  y_t,  t):
+    def p_sample(self, enc_out, y_t, t, svq_sigma=None):
         """
         Reverse diffusion process sampling -- one time step.
 
@@ -205,7 +206,7 @@ class Model(nn.Module):
         # y_t_m_1 posterior mean component coefficients
         time_cond = torch.full((batch,), t,device=device, dtype=torch.long)
 
-        pred_noise = self.diffussion_model(y_t, time_cond,enc_out)                    # dec_out: [bs x nvars x pred_len]
+        pred_noise = self.diffussion_model(y_t, time_cond, enc_out, sigma=svq_sigma)  # dec_out: [bs x nvars x pred_len]
         # y_start = self.diffussion_model(enc_out, y_t, time_cond) 
      
         # posterior mean
@@ -230,7 +231,7 @@ class Model(nn.Module):
 
     # Reverse function -- sample y_0 given y_1
 
-    def p_sample_loop(self, y_T_mean, enc_out,  y_shape):
+    def p_sample_loop(self, y_T_mean, enc_out, y_shape, svq_sigma=None):
         device=enc_out.device
         z = torch.randn(*y_shape).to(device)
 
@@ -239,15 +240,15 @@ class Model(nn.Module):
         for t in tqdm(reversed(range(0, self.num_timesteps)),
                       desc='sampling loop time step', total=self.num_timesteps):
             y_t = cur_y
-            cur_y = self.p_sample( enc_out, y_t, t)  # y_{t-1}
+            cur_y = self.p_sample(enc_out, y_t, t, svq_sigma=svq_sigma)  # y_{t-1}
             # y_p_seq.append(cur_y.detach().cpu()+y_T_mean.detach().cpu())
         # assert len(y_p_seq) == self.num_timesteps+1
 
         return cur_y
 
-    def forward(self,  y_t, t, enc_out):
-        #enc_out:[bs x seq_len x nvars]  , y_t:[bs x pred_len x nvars]  , t:[bs ]  
+    def forward(self, y_t, t, enc_out, sigma=None):
+        #enc_out:[bs x seq_len x nvars]  , y_t:[bs x pred_len x nvars]  , t:[bs ]
 
-        dec_out = self.diffussion_model( y_t, t, enc_out)                    # dec_out: [bs x nvars x pred_len]
+        dec_out = self.diffussion_model(y_t, t, enc_out, sigma=sigma)              # dec_out: [bs x nvars x pred_len]
         return dec_out
 

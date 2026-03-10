@@ -3,13 +3,14 @@ seq_len=96
 pred_len=192
 model_name=SVQ
 
-root_path_name='../../../dataset/Solar/'
+root_path_name='./dataset/Solar/'
 data_path_name=solar_AL.txt
 model_id_name=solar
 data_name='Solar'
 
 random_seed=2021
-python -u ../../../runner9_NS_transformer.py \
+python -u ./runner9_NS_transformer.py \
+        --is_training 1\
         --seed $random_seed \
         --root_path $root_path_name \
         --data_path $data_path_name \
@@ -50,6 +51,6 @@ python -u ../../../runner9_NS_transformer.py \
         --codebook_size 1000 \
         --type_sample 'DPM_solver'\
         --DPMsolver_step 20\
-        --gpu 0 \
+        --gpu 2 \
         --parameterization "x_start"\
         --bias \
