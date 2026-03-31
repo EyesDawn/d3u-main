@@ -478,7 +478,7 @@ class Exp_Main(Exp_Basic):
             best_condition_model_path = os.path.join(self.args.pretrain_checkpoints + setting, 'checkpoint.pth')
             print(best_condition_model_path)
             
-            self.cond_pred_model.load_state_dict(torch.load(best_condition_model_path, map_location=self.device))
+            self.cond_pred_model.load_state_dict(torch.load(best_condition_model_path, map_location=self.device), strict=False)
             self.cond_pred_model = self.cond_pred_model.to(self.device)
         preds = []
         trues = []

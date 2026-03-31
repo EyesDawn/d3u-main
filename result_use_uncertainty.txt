@@ -1,0 +1,57 @@
+========================
+use_uncertainty
+========================
+>>>>>>>testing : False_ts100_PatchDN_96_192_SVQ_ETTm1_ftM_sl96_ll48_pl192_dm512_nh8_el2_dl1_df512_fc3_ebtimeF_dtTrue_Exp_0<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+test 11329
+test 178
+total_samples 11329.0
+NT metrc: CRPS:0.2877
+NT metrc: mse:0.3810, mae:0.3949
+NT metrc: CRPS_sum:0.8027
+QICE bin count: [0.07811305 0.09756363 0.112112   0.12162213 0.1235075  0.11910364
+ 0.10831111 0.09302914 0.07387705 0.05349183]
+CARD metrc: QICE:1.8858%
+
+>>>>>>>testing : False_ts100_PatchDN_96_192_SVQ_ETTm2_ftM_sl96_ll48_pl192_dm512_nh8_el2_dl1_df512_fc3_ebtimeF_dtTrue_Exp_0<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+test 11329
+test 178
+total_samples 11329.0
+NT metrc: CRPS:0.2408
+NT metrc: mse:0.2596, mae:0.3178
+NT metrc: CRPS_sum:0.0994
+QICE bin count: [0.09612834 0.08417432 0.0838418  0.08448812 0.08674982 0.08641953
+ 0.08314143 0.08296266 0.09156941 0.16639247]
+CARD metrc: QICE:1.8692%
+
+>>>>>>>testing : False_ts100_PatchDN_96_192_SVQ_weather_ftM_sl96_ll48_pl192_dm256_nh8_el2_dl1_df512_fc3_ebtimeF_dtTrue_Exp_0<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+test 54
+test 14
+total_samples 54.0
+NT metrc: CRPS:0.2326
+NT metrc: mse:0.2667, mae:0.2980
+NT metrc: CRPS_sum:0.2356
+QICE bin count: [0.07446906 0.04435351 0.0512658  0.09720844 0.18812923 0.21562224
+ 0.1381724  0.07619139 0.0484871  0.03462118]
+CARD metrc: QICE:5.1533%
+
+>>>>>>>testing : False_ts100_PatchDN_96_192_SVQ_ECL_ftM_sl96_ll48_pl192_dm512_nh8_el2_dl1_df512_fc3_ebtimeF_dtTrue_Exp_0<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+test 27
+test 27
+total_samples 27.0
+NT metrc: CRPS:0.1980
+NT metrc: mse:0.1780, mae:0.2655
+NT metrc: CRPS_sum:0.4456
+QICE bin count: [0.08056601 0.08253348 0.09614474 0.11208343 0.12320019 0.11751892
+ 0.10298402 0.09026095 0.08212425 0.08557003]
+CARD metrc: QICE:1.3859%
+
+>>>>>>>testing : False_ts100_PatchDN_96_192_SVQ_traffic_ftM_sl96_ll48_pl192_dm256_nh16_el3_dl1_df256_fc3_ebtimeF_dtTrue_Exp_0<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+test 18
+test 18
+total_samples 18.0
+NT metrc: CRPS:0.2449
+NT metrc: mse:0.5805, mae:0.3243
+NT metrc: CRPS_sum:0.6078
+QICE bin count: [0.09108071 0.07473032 0.08456593 0.10136848 0.12149958 0.13438077
+ 0.12206419 0.094228   0.07015339 0.06144564]
+CARD metrc: QICE:2.0311%

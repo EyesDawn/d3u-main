@@ -53,6 +53,6 @@ python -u ./runner9_NS_transformer.py \
         --codebook_size 256 \
         --type_sample 'DPM_solver'\
         --DPMsolver_step 20\
-        --gpu 3 \
+        --gpu 0 \
         --parameterization "x_start"\
         --bias  | tee -a logs/$model_name'_'$model_id_name.log
