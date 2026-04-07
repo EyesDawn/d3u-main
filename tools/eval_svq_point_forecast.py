@@ -11,6 +11,7 @@ import matplotlib
 import numpy as np
 import seaborn as sns
 import torch
+from matplotlib.colors import to_rgb
 from scipy.stats import gaussian_kde
 
 matplotlib.use("Agg")
@@ -65,12 +66,69 @@ COMMON_CONFIG = {
 
 
 DATASET_CONFIGS = {
+    "ETTh1": {
+        "setting": "False_ts100_PatchDN_96_192_SVQ_ETTh1_ftM_sl96_ll48_pl192_dm512_nh8_el2_dl1_df512_fc3_ebtimeF_dtTrue_Exp_0",
+        "data": "ETTh1",
+        "data_name": "ETTh1",
+        "root_path": "./dataset/ETT-small/",
+        "data_path": "ETTh1.csv",
+        "enc_in": 7,
+        "dec_in": 7,
+        "c_out": 7,
+        "d_model_c": 512,
+        "n_heads_c": 8,
+        "e_layers_c": 2,
+        "d_layers_c": 1,
+        "d_ff": 512,
+        "depth": 1,
+        "d_model_d": 128,
+        "num_codebook": 1,
+        "test_batch_size": 64,
+    },
+    "ETTh2": {
+        "setting": "False_ts100_PatchDN_96_192_SVQ_ETTh2_ftM_sl96_ll48_pl192_dm512_nh8_el2_dl1_df512_fc3_ebtimeF_dtTrue_Exp_0",
+        "data": "ETTh2",
+        "data_name": "ETTh2",
+        "root_path": "./dataset/ETT-small/",
+        "data_path": "ETTh2.csv",
+        "enc_in": 7,
+        "dec_in": 7,
+        "c_out": 7,
+        "d_model_c": 512,
+        "n_heads_c": 8,
+        "e_layers_c": 2,
+        "d_layers_c": 1,
+        "d_ff": 512,
+        "depth": 1,
+        "d_model_d": 128,
+        "num_codebook": 1,
+        "test_batch_size": 64,
+    },
     "ETTm1": {
         "setting": "False_ts100_PatchDN_96_192_SVQ_ETTm1_ftM_sl96_ll48_pl192_dm512_nh8_el2_dl1_df512_fc3_ebtimeF_dtTrue_Exp_0",
         "data": "ETTm1",
         "data_name": "ETTm1",
         "root_path": "./dataset/ETT-small/",
         "data_path": "ETTm1.csv",
+        "enc_in": 7,
+        "dec_in": 7,
+        "c_out": 7,
+        "d_model_c": 512,
+        "n_heads_c": 8,
+        "e_layers_c": 2,
+        "d_layers_c": 1,
+        "d_ff": 512,
+        "depth": 1,
+        "d_model_d": 128,
+        "num_codebook": 1,
+        "test_batch_size": 64,
+    },
+    "ETTm2": {
+        "setting": "False_ts100_PatchDN_96_192_SVQ_ETTm2_ftM_sl96_ll48_pl192_dm512_nh8_el2_dl1_df512_fc3_ebtimeF_dtTrue_Exp_0",
+        "data": "ETTm2",
+        "data_name": "ETTm2",
+        "root_path": "./dataset/ETT-small/",
+        "data_path": "ETTm2.csv",
         "enc_in": 7,
         "dec_in": 7,
         "c_out": 7,
@@ -122,6 +180,27 @@ DATASET_CONFIGS = {
         "num_codebook": 2,
         "test_batch_size": 1,
     },
+    "traffic": {
+        "setting": "False_ts100_PatchDN_96_192_SVQ_traffic_ftM_sl96_ll48_pl192_dm256_nh16_el3_dl1_df256_fc3_ebtimeF_dtTrue_Exp_0",
+        "data": "custom",
+        "data_name": "traffic",
+        "root_path": "./dataset/",
+        "data_path": "traffic.csv",
+        "enc_in": 862,
+        "dec_in": 862,
+        "c_out": 862,
+        "d_model_c": 256,
+        "n_heads_c": 16,
+        "e_layers_c": 3,
+        "d_layers_c": 1,
+        "d_ff": 256,
+        "depth": 1,
+        "d_model_d": 128,
+        "num_codebook": 2,
+        "codebook_size": 512,
+        "batch_size": 16,
+        "test_batch_size": 1,
+    },
 }
 
 
@@ -153,6 +232,29 @@ def parse_args() -> argparse.Namespace:
         "--plot-only",
         action="store_true",
         help="Skip model evaluation and regenerate plots from saved predictions.",
+    )
+    parser.add_argument(
+        "--clip_min",
+        "--clip-min",
+        dest="clip_min",
+        type=float,
+        default=None,
+        help="Lower clipping bound applied to residuals before plotting only.",
+    )
+    parser.add_argument(
+        "--clip_max",
+        "--clip-max",
+        dest="clip_max",
+        type=float,
+        default=None,
+        help="Upper clipping bound applied to residuals before plotting only.",
+    )
+    parser.add_argument(
+        "--no_clip",
+        "--no-clip",
+        dest="no_clip",
+        action="store_true",
+        help="Disable clipping even if clip_min or clip_max are provided.",
     )
     return parser.parse_args()
 
@@ -234,6 +336,38 @@ def get_space_label(residual_space: str) -> str:
     return "z-score" if residual_space == "zscore" else "original"
 
 
+def format_clip_bound(bound: float) -> str:
+    if np.isneginf(bound):
+        return "-inf"
+    if np.isposinf(bound):
+        return "+inf"
+    return f"{bound:g}"
+
+
+def clip_residuals_for_plot(
+    residuals: np.ndarray,
+    clip_min: float | None,
+    clip_max: float | None,
+    no_clip: bool,
+) -> tuple[np.ndarray, bool, str]:
+    if no_clip or (clip_min is None and clip_max is None):
+        return residuals, False, "no clipping"
+
+    lower = float(clip_min) if clip_min is not None else float("-inf")
+    upper = float(clip_max) if clip_max is not None else float("inf")
+    if lower > upper:
+        raise ValueError(f"clip_min must be <= clip_max, got {clip_min} > {clip_max}")
+
+    clipped = np.clip(residuals, lower, upper)
+    clip_note = f"clipped to [{format_clip_bound(lower)}, {format_clip_bound(upper)}]"
+    return clipped, True, clip_note
+
+
+def darken_color(color: str, factor: float = 0.72) -> tuple[float, float, float]:
+    rgb = np.array(to_rgb(color))
+    return tuple(np.clip(rgb * factor, 0.0, 1.0))
+
+
 def evaluate_dataset(dataset_name: str, output_root: Path, gpu: int, residual_space: str) -> dict:
     args = build_runtime_args(dataset_name, gpu)
     device = get_device(args)
@@ -241,6 +375,12 @@ def evaluate_dataset(dataset_name: str, output_root: Path, gpu: int, residual_sp
     dataset_dir = output_root / dataset_name
     dataset_dir.mkdir(parents=True, exist_ok=True)
     metrics_path, predictions_path, _ = get_artifact_paths(dataset_dir, residual_space)
+
+    if not checkpoint_path.exists():
+        raise FileNotFoundError(
+            f"Missing checkpoint for {dataset_name}: {checkpoint_path}. "
+            f"Expected setting={DATASET_CONFIGS[dataset_name]['setting']}"
+        )
 
     print(f"[eval] {dataset_name}: loading checkpoint {checkpoint_path}")
     model = SVQ.Model(args).float().to(device)
@@ -308,7 +448,14 @@ def evaluate_dataset(dataset_name: str, output_root: Path, gpu: int, residual_sp
     return metrics
 
 
-def plot_dataset(dataset_name: str, output_root: Path, residual_space: str) -> Path:
+def plot_dataset(
+    dataset_name: str,
+    output_root: Path,
+    residual_space: str,
+    clip_min: float | None,
+    clip_max: float | None,
+    no_clip: bool,
+) -> Path:
     dataset_dir = output_root / dataset_name
     metrics_path, predictions_path, fig_path = get_artifact_paths(dataset_dir, residual_space)
     if not metrics_path.exists():
@@ -322,74 +469,90 @@ def plot_dataset(dataset_name: str, output_root: Path, residual_space: str) -> P
             f"Residual space mismatch for {dataset_name}: expected {residual_space}, found {metrics.get('space')}"
         )
     residual_last = np.load(predictions_path)["residual_last"].reshape(-1)
+    residual_plot, _, clip_note = clip_residuals_for_plot(
+        residual_last,
+        clip_min,
+        clip_max,
+        no_clip,
+    )
     space_label = metrics.get("space_label", get_space_label(residual_space))
-    bins = min(80, max(20, int(np.sqrt(max(residual_last.size, 1)))))
+    bins = min(72, max(24, int(np.sqrt(max(residual_plot.size, 1)))))
 
-    sns.set_theme(style="whitegrid", context="talk")
-    sns.set_palette(["#4C78A8", "#E45756", "#54A24B"])
-    fig, ax = plt.subplots(figsize=(10, 6.4))
-    fig.patch.set_facecolor("#F7F7F5")
-    ax.set_facecolor("#FCFCFB")
+    sns.set_theme(
+        style="white",
+        context="paper",
+        rc={
+            "axes.labelsize": 10,
+            "axes.titlesize": 11,
+            "xtick.labelsize": 9,
+            "ytick.labelsize": 9,
+            "legend.fontsize": 8.5,
+            "axes.linewidth": 0.9,
+            "lines.linewidth": 2.0,
+            "figure.dpi": 150,
+        },
+    )
+    fig, ax = plt.subplots(figsize=(5.8, 3.9))
+    fig.patch.set_facecolor("white")
+    ax.set_facecolor("white")
 
-    kde_skipped = False
-    residual_std = float(np.std(residual_last))
-    kde_enabled = residual_last.size > 1 and residual_std > 1e-12
+    base_color = "tab:orange"
+    kde_color = darken_color(base_color, factor=0.72)
+    zero_line_color = "#4A4A4A"
+
+    residual_std = float(np.std(residual_plot))
+    kde_enabled = residual_plot.size > 1 and residual_std > 1e-12
     sns.histplot(
-        x=residual_last,
+        x=residual_plot,
         bins=bins,
         stat="density",
         kde=False,
-        color="#4C78A8",
-        edgecolor="#FFFFFF",
-        alpha=0.72,
-        linewidth=0.7,
+        color=base_color,
+        alpha=0.40,
+        edgecolor=None,
         ax=ax,
         label="Histogram",
     )
-    ax.axvline(0.0, color="#222222", linestyle="--", linewidth=1.2, label="Zero Error")
+    ax.axvline(0.0, color=zero_line_color, linestyle="--", linewidth=1.1, label="Zero Residual")
 
     if kde_enabled:
-        grid = np.linspace(residual_last.min(), residual_last.max(), 512)
-        kde = gaussian_kde(residual_last)
-        ax.plot(grid, kde(grid), color="#E45756", linewidth=2.4, label="KDE")
-    else:
-        kde_skipped = True
+        grid = np.linspace(residual_plot.min(), residual_plot.max(), 512)
+        kde = gaussian_kde(residual_plot)
+        ax.plot(grid, kde(grid), color=kde_color, linewidth=2.2, label="KDE")
 
-    residual_mean = float(np.mean(residual_last))
-    residual_p05, residual_p95 = np.quantile(residual_last, [0.05, 0.95])
-
-    ax.set_title(f"{dataset_name} Residual Distribution ({space_label}, Last Variable)", pad=14)
-    ax.set_xlabel(f"Residual = y_true - y_hat ({space_label} space)")
-    ax.set_ylabel("Density")
-    ax.legend()
-    ax.grid(axis="y", color="#D9D9D4", alpha=0.55, linewidth=0.8)
-    sns.despine(ax=ax, left=False, bottom=False)
-
-    checkpoint_name = Path(metrics["checkpoint_path"]).parent.name
-    meta = "\n".join(
-        [
-            f"space: {space_label}",
-            "feature: last variable",
-            f"mean: {residual_mean:.4f}",
-            f"std: {residual_std:.4f}",
-            f"p05/p95: {residual_p05:.4f} / {residual_p95:.4f}",
-            "kde: skipped" if kde_skipped else "kde: enabled",
-            f"ckpt: {checkpoint_name}",
-        ]
+    ax.set_title(dataset_name, loc="left", pad=8, fontweight="semibold")
+    ax.text(
+        0.0,
+        1.01,
+        f"Residual distribution ({space_label} space, last variable)",
+        transform=ax.transAxes,
+        ha="left",
+        va="bottom",
+        fontsize=8.8,
+        color="#5A5A5A",
     )
     ax.text(
-        0.02,
-        0.98,
-        meta,
+        1.0,
+        1.01,
+        clip_note,
         transform=ax.transAxes,
-        va="top",
-        ha="left",
-        fontsize=9,
-        bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.9, "edgecolor": "#CCCCCC"},
+        ha="right",
+        va="bottom",
+        fontsize=8.4,
+        color="#6A6A6A",
     )
 
+    ax.set_xlabel("Residual = y_true - y_hat")
+    ax.set_ylabel("Density")
+    ax.grid(axis="y", color="#D8D8D8", alpha=0.8, linewidth=0.7)
+    ax.grid(axis="x", visible=False)
+    ax.margins(x=0.02)
+    ax.tick_params(axis="both", which="major", length=3.5, width=0.8, color="#3A3A3A")
+    ax.legend(loc="upper right", frameon=False, handlelength=2.4)
+    sns.despine(ax=ax, top=True, right=True)
+
     fig.tight_layout()
-    fig.savefig(fig_path, dpi=200, bbox_inches="tight")
+    fig.savefig(fig_path, dpi=300, bbox_inches="tight", facecolor=fig.get_facecolor())
     plt.close(fig)
     print(f"[plot] {dataset_name}: saved {fig_path}")
     return fig_path
@@ -397,6 +560,14 @@ def plot_dataset(dataset_name: str, output_root: Path, residual_space: str) -> P
 
 def main() -> None:
     cli_args = parse_args()
+    if (
+        not cli_args.no_clip
+        and cli_args.clip_min is not None
+        and cli_args.clip_max is not None
+        and cli_args.clip_min > cli_args.clip_max
+    ):
+        raise ValueError(f"clip_min must be <= clip_max, got {cli_args.clip_min} > {cli_args.clip_max}")
+
     output_root = Path(cli_args.output_dir).resolve()
     output_root.mkdir(parents=True, exist_ok=True)
     set_seed(COMMON_CONFIG["seed"])
@@ -414,7 +585,14 @@ def main() -> None:
             metrics_path, _, _ = get_artifact_paths(output_root / dataset_name, cli_args.residual_space)
             if metrics_path.exists():
                 summary[dataset_name] = json.loads(metrics_path.read_text(encoding="utf-8"))
-        plot_dataset(dataset_name, output_root, cli_args.residual_space)
+        plot_dataset(
+            dataset_name,
+            output_root,
+            cli_args.residual_space,
+            cli_args.clip_min,
+            cli_args.clip_max,
+            cli_args.no_clip,
+        )
 
     if summary:
         summary_path = output_root / f"summary_{cli_args.residual_space}.json"
