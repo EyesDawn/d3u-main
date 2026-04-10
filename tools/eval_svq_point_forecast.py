@@ -12,7 +12,7 @@ import numpy as np
 import seaborn as sns
 import torch
 from matplotlib.colors import to_rgb
-from scipy.stats import gaussian_kde
+from scipy.stats import gaussian_kde, norm
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -256,6 +256,21 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Disable clipping even if clip_min or clip_max are provided.",
     )
+    parser.add_argument(
+        "--feature-indices",
+        "--feature-dims",
+        nargs="+",
+        type=int,
+        default=None,
+        help="Feature index for each dataset. Provide one index per dataset in --datasets order. Default is -1 for all datasets.",
+    )
+    parser.add_argument(
+        "--window-indices",
+        nargs="+",
+        type=int,
+        default=None,
+        help="Window index for each dataset. Provide one index per dataset in --datasets order. Default uses all windows.",
+    )
     return parser.parse_args()
 
 
@@ -368,6 +383,56 @@ def darken_color(color: str, factor: float = 0.72) -> tuple[float, float, float]
     return tuple(np.clip(rgb * factor, 0.0, 1.0))
 
 
+def resolve_feature_indices(dataset_names: list[str], feature_indices: list[int] | None) -> dict[str, int]:
+    if feature_indices is None:
+        return {dataset_name: -1 for dataset_name in dataset_names}
+
+    if len(feature_indices) != len(dataset_names):
+        raise ValueError(
+            "--feature-indices must provide exactly one index per dataset in --datasets order: "
+            f"got {len(feature_indices)} indices for {len(dataset_names)} datasets"
+        )
+    return dict(zip(dataset_names, feature_indices))
+
+
+def resolve_window_indices(dataset_names: list[str], window_indices: list[int] | None) -> dict[str, int | None]:
+    if window_indices is None:
+        return {dataset_name: None for dataset_name in dataset_names}
+
+    if len(window_indices) != len(dataset_names):
+        raise ValueError(
+            "--window-indices must provide exactly one index per dataset in --datasets order: "
+            f"got {len(window_indices)} indices for {len(dataset_names)} datasets"
+        )
+    return dict(zip(dataset_names, window_indices))
+
+
+def normalize_feature_index(feature_index: int, n_vars: int, dataset_name: str) -> int:
+    normalized = feature_index if feature_index >= 0 else n_vars + feature_index
+    if normalized < 0 or normalized >= n_vars:
+        raise IndexError(
+            f"Feature index {feature_index} is out of range for {dataset_name} with {n_vars} variables"
+        )
+    return normalized
+
+
+def normalize_window_index(window_index: int | None, n_windows: int, dataset_name: str) -> int | None:
+    if window_index is None:
+        return None
+    normalized = window_index if window_index >= 0 else n_windows + window_index
+    if normalized < 0 or normalized >= n_windows:
+        raise IndexError(
+            f"Window index {window_index} is out of range for {dataset_name} with {n_windows} windows"
+        )
+    return normalized
+
+
+def get_plot_path(dataset_dir: Path, residual_space: str, feature_index: int, window_index: int | None) -> Path:
+    suffix = residual_space.lower()
+    window_suffix = "all" if window_index is None else f"win{window_index}"
+    return dataset_dir / f"residual_{dataset_dir.name}_{suffix}_var{feature_index}_{window_suffix}_hist_kde.png"
+
+
 def evaluate_dataset(dataset_name: str, output_root: Path, gpu: int, residual_space: str) -> dict:
     args = build_runtime_args(dataset_name, gpu)
     device = get_device(args)
@@ -438,7 +503,7 @@ def evaluate_dataset(dataset_name: str, output_root: Path, gpu: int, residual_sp
         "space": residual_space,
         "space_label": get_space_label(residual_space),
         "residual_definition": "y_true - y_hat",
-        "feature_for_plot": "last variable",
+        "feature_for_plot": "configured by --feature-indices",
     }
     save_metrics(metrics_path, metrics)
     print(
@@ -452,12 +517,14 @@ def plot_dataset(
     dataset_name: str,
     output_root: Path,
     residual_space: str,
+    feature_index: int,
+    window_index: int | None,
     clip_min: float | None,
     clip_max: float | None,
     no_clip: bool,
 ) -> Path:
     dataset_dir = output_root / dataset_name
-    metrics_path, predictions_path, fig_path = get_artifact_paths(dataset_dir, residual_space)
+    metrics_path, predictions_path, _ = get_artifact_paths(dataset_dir, residual_space)
     if not metrics_path.exists():
         raise FileNotFoundError(f"Missing metrics file: {metrics_path}")
     if not predictions_path.exists():
@@ -468,18 +535,32 @@ def plot_dataset(
         raise ValueError(
             f"Residual space mismatch for {dataset_name}: expected {residual_space}, found {metrics.get('space')}"
         )
-    residual_last = np.load(predictions_path)["residual_last"].reshape(-1)
+    predictions = np.load(predictions_path)
+    residual = predictions["residual"]
+    n_vars = int(residual.shape[-1])
+    n_windows = int(residual.shape[0])
+    space_label = metrics.get("space_label", get_space_label(residual_space))
+    feature_index = normalize_feature_index(feature_index, n_vars, dataset_name)
+    window_index = normalize_window_index(window_index, n_windows, dataset_name)
+    if window_index is None:
+        residual_selected = residual[:, :, feature_index].reshape(-1)
+        distribution_label = f"Residual distribution ({space_label} space, variable {feature_index}, all windows)"
+    else:
+        residual_selected = residual[window_index, :, feature_index].reshape(-1)
+        distribution_label = (
+            f"Residual distribution ({space_label} space, variable {feature_index}, window {window_index})"
+        )
+    fig_path = get_plot_path(dataset_dir, residual_space, feature_index, window_index)
     residual_plot, _, clip_note = clip_residuals_for_plot(
-        residual_last,
+        residual_selected,
         clip_min,
         clip_max,
         no_clip,
     )
-    space_label = metrics.get("space_label", get_space_label(residual_space))
     bins = min(72, max(24, int(np.sqrt(max(residual_plot.size, 1)))))
 
     sns.set_theme(
-        style="white",
+        style="darkgrid",
         context="paper",
         rc={
             "axes.labelsize": 10,
@@ -490,17 +571,22 @@ def plot_dataset(
             "axes.linewidth": 0.9,
             "lines.linewidth": 2.0,
             "figure.dpi": 150,
+            "grid.linestyle": "--",
+            "grid.alpha": 0.35,
+            "grid.color": "#B8B8B8",
         },
     )
     fig, ax = plt.subplots(figsize=(5.8, 3.9))
     fig.patch.set_facecolor("white")
-    ax.set_facecolor("white")
+    ax.set_facecolor("#F2F2F2")
 
     base_color = "tab:orange"
     kde_color = darken_color(base_color, factor=0.72)
-    zero_line_color = "#4A4A4A"
+    reference_color = "#111111"
 
+    residual_mean = float(np.mean(residual_selected))
     residual_std = float(np.std(residual_plot))
+    residual_std_raw = float(np.std(residual_selected))
     kde_enabled = residual_plot.size > 1 and residual_std > 1e-12
     sns.histplot(
         x=residual_plot,
@@ -511,20 +597,35 @@ def plot_dataset(
         alpha=0.40,
         edgecolor=None,
         ax=ax,
-        label="Histogram",
+        label="Residual",
     )
-    ax.axvline(0.0, color=zero_line_color, linestyle="--", linewidth=1.1, label="Zero Residual")
 
     if kde_enabled:
         grid = np.linspace(residual_plot.min(), residual_plot.max(), 512)
         kde = gaussian_kde(residual_plot)
         ax.plot(grid, kde(grid), color=kde_color, linewidth=2.2, label="KDE")
+        if residual_space == "zscore":
+            ref_mu = 0.0
+            ref_sigma = 1.0
+            ref_label = r"$\mathcal{N}(0,1)$"
+        else:
+            ref_mu = residual_mean
+            ref_sigma = max(residual_std_raw, 1e-12)
+            ref_label = r"$\mathcal{N}(\mu,\sigma)$"
+        ax.plot(
+            grid,
+            norm.pdf(grid, loc=ref_mu, scale=ref_sigma),
+            color=reference_color,
+            linestyle="--",
+            linewidth=1.8,
+            label=ref_label,
+        )
 
     ax.set_title(dataset_name, loc="left", pad=8, fontweight="semibold")
     ax.text(
         0.0,
         1.01,
-        f"Residual distribution ({space_label} space, last variable)",
+        distribution_label,
         transform=ax.transAxes,
         ha="left",
         va="bottom",
@@ -541,15 +642,25 @@ def plot_dataset(
         fontsize=8.4,
         color="#6A6A6A",
     )
+    ax.text(
+        0.02,
+        0.96,
+        f"μ={residual_mean:.3f}, σ={residual_std_raw:.3f}",
+        transform=ax.transAxes,
+        ha="left",
+        va="top",
+        fontsize=8.6,
+        bbox={"boxstyle": "round,pad=0.28", "facecolor": "#F7F7F7", "edgecolor": "#6C6C6C", "alpha": 0.95},
+    )
 
     ax.set_xlabel("Residual = y_true - y_hat")
     ax.set_ylabel("Density")
-    ax.grid(axis="y", color="#D8D8D8", alpha=0.8, linewidth=0.7)
-    ax.grid(axis="x", visible=False)
+    ax.grid(axis="y", color="#BBBBBB", alpha=0.45, linewidth=0.7, linestyle="--")
+    ax.grid(axis="x", color="#C5C5C5", alpha=0.25, linewidth=0.6, linestyle="--")
     ax.margins(x=0.02)
     ax.tick_params(axis="both", which="major", length=3.5, width=0.8, color="#3A3A3A")
-    ax.legend(loc="upper right", frameon=False, handlelength=2.4)
-    sns.despine(ax=ax, top=True, right=True)
+    ax.legend(loc="upper right", frameon=True, fancybox=True, framealpha=0.92, edgecolor="#C8C8C8")
+    sns.despine(ax=ax, top=False, right=False)
 
     fig.tight_layout()
     fig.savefig(fig_path, dpi=300, bbox_inches="tight", facecolor=fig.get_facecolor())
@@ -567,6 +678,9 @@ def main() -> None:
         and cli_args.clip_min > cli_args.clip_max
     ):
         raise ValueError(f"clip_min must be <= clip_max, got {cli_args.clip_min} > {cli_args.clip_max}")
+
+    feature_indices = resolve_feature_indices(cli_args.datasets, cli_args.feature_indices)
+    window_indices = resolve_window_indices(cli_args.datasets, cli_args.window_indices)
 
     output_root = Path(cli_args.output_dir).resolve()
     output_root.mkdir(parents=True, exist_ok=True)
@@ -589,6 +703,8 @@ def main() -> None:
             dataset_name,
             output_root,
             cli_args.residual_space,
+            feature_indices[dataset_name],
+            window_indices[dataset_name],
             cli_args.clip_min,
             cli_args.clip_max,
             cli_args.no_clip,
