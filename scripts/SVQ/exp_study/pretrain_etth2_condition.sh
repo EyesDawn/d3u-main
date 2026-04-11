@@ -11,7 +11,8 @@ data_name=ETTh2
 
 random_seed=2021
 python -u ./runner9_NS_transformer.py \
-        --is_training 0 \
+        --is_training 1 \
+        --pretrain_condition_only \
         --seed $random_seed \
         --root_path $root_path_name \
         --data_path $data_path_name \
@@ -36,6 +37,7 @@ python -u ./runner9_NS_transformer.py \
         --depth 1 \
         --d_model_d 128 \
         --itr 1 \
+        --train_epochs 100 \
         --timesteps 100 \
         --batch_size 128 \
         --test_batch_size 64 \
@@ -52,4 +54,4 @@ python -u ./runner9_NS_transformer.py \
         --DPMsolver_step 20 \
         --gpu 0 \
         --parameterization 'x_start' \
-        --bias | tee -a logs/$model_name'_'$model_id_name.log
+        --bias | tee -a logs/${model_name}_${model_id_name}_cond_pretrain.log

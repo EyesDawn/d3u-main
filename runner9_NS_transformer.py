@@ -160,6 +160,7 @@ if __name__ == '__main__':
     parser.add_argument('--scrach_10_stop', action='store_true', help='')#对应实验 从0开始训练
     parser.add_argument('--bias_y_0', action='store_true', help='') #对应实验 条件模型建模T+S,扩散模型建模残差
     parser.add_argument('--use_uncertainty', action='store_true', help='enable uncertainty estimation head in SVQ and NLL loss')
+    parser.add_argument('--pretrain_condition_only', action='store_true', help='train only the conditional forecasting model and save it under pretrain_checkpoints')
 
     args = parser.parse_args()
 
@@ -217,16 +218,20 @@ if __name__ == '__main__':
                 args.des, ii)
 
             exp = Exp(args)  # set experiments
-            print('>>>>>>>start training : {}>>>>>>>>>>>>>>>>>>>>>>>>>>'.format(setting))
-            exp.train(setting)
+            if args.pretrain_condition_only:
+                print('>>>>>>>start condition pretraining : {}>>>>>>>>>>>>>>>>>>>>>>>>>>'.format(setting))
+                exp.pretrain_condition(setting)
+            else:
+                print('>>>>>>>start training : {}>>>>>>>>>>>>>>>>>>>>>>>>>>'.format(setting))
+                exp.train(setting)
 
-            print('>>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
-            # exp.test_cond(setting)
-            exp.test(setting)
+                print('>>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
+                # exp.test_cond(setting)
+                exp.test(setting)
 
-            if args.do_predict:
-                print('>>>>>>>predicting : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
-                exp.predict(setting, True)
+                if args.do_predict:
+                    print('>>>>>>>predicting : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
+                    exp.predict(setting, True)
 
             torch.cuda.empty_cache()
     else:

@@ -1,31 +1,29 @@
-export CUDA_DEVICE_ORDER=PCI_BUS_ID
-export CUDA_VISIBLE_DEVICES=6
-
 seq_len=96
 pred_len=192
 model_name=SVQ
-root_path_name=./dataset/ETT-small/
-data_path_name=ETTh2.csv
-model_id_name=ETTh2
-data_name=ETTh2
+
+root_path_name='./dataset/'
+data_path_name=exchange_rate.csv
+model_id_name=exchange_rate
+data_name='custom'
 
 random_seed=2021
 python -u ./runner9_NS_transformer.py \
-        --is_training 0 \
+        --is_training 1 \
         --seed $random_seed \
         --root_path $root_path_name \
         --data_path $data_path_name \
         --model_id ${seq_len}_${pred_len} \
         --model $model_name \
-        --data $data_name \
         --data_name $model_id_name \
+        --data $data_name \
         --features M \
         --seq_len $seq_len \
         --label_len 48 \
         --pred_len $pred_len \
-        --enc_in 7 \
-        --dec_in 7 \
-        --c_out 7 \
+        --enc_in 8 \
+        --dec_in 8 \
+        --c_out 8 \
         --e_layers_c 2 \
         --n_heads_c 8 \
         --d_model_c 512 \

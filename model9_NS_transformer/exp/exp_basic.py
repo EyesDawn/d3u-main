@@ -21,18 +21,15 @@ class Exp_Basic(object):
         return None, None, None
 
     def _acquire_device(self):
-        if torch.cuda.is_available():
-            if self.args.use_gpu:
-                os.environ["CUDA_VISIBLE_DEVICES"] = str(
-                    self.args.gpu) if not self.args.use_multi_gpu else self.args.devices
-                device = torch.device('cuda:{}'.format(self.args.gpu))
-                print('Use GPU: cuda:{}'.format(self.args.gpu))
-            else:
-                device = torch.device('cpu')
-                print('Use CPU')
+        if torch.cuda.is_available() and self.args.use_gpu:
+            device = torch.device('cuda:{}'.format(self.args.gpu))
+            print('Use GPU: cuda:{}'.format(self.args.gpu))
+        elif torch.backends.mps.is_available() and self.args.use_gpu:
+            device = torch.device('mps:0')
+            print('Use MPS')
         else:
-            device_name = f'mps:0'
-            device = torch.device(device_name)
+            device = torch.device('cpu')
+            print('Use CPU')
         return device
 
     def _get_data(self):

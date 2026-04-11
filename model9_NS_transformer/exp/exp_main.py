@@ -3,6 +3,7 @@ from data_provider.data_factory import data_provider
 from utils.tools import EarlyStopping, distribution
 from utils.metrics import metric
 import gc
+import json
 # from model9_NS_transformer.ns_models import ns_Transformer
 from model9_NS_transformer.exp.exp_basic import Exp_Basic
 from model9_NS_transformer.diffusion_models import diffuMTS
@@ -131,6 +132,50 @@ class Exp_Main(Exp_Basic):
         criterion = nn.MSELoss()
         return criterion
 
+    def _default_condition_checkpoint_dir(self):
+        scope = 'decomposition' if self.args.decomposition else 'all'
+        return os.path.join(self.args.pretrain_checkpoints, self.args.model, scope, self.args.data_name, str(self.args.pred_len))
+
+    def _setting_condition_checkpoint_dir(self, setting):
+        return os.path.join(self.args.pretrain_checkpoints, setting)
+
+    def _sync_condition_checkpoint(self, source_path, setting):
+        if not os.path.exists(source_path):
+            return
+        target_dir = self._setting_condition_checkpoint_dir(setting)
+        if not os.path.exists(target_dir):
+            os.makedirs(target_dir)
+        state_dict = torch.load(source_path, map_location='cpu')
+        torch.save(state_dict, os.path.join(target_dir, 'checkpoint.pth'))
+
+    def vali_condition(self, data_loader, criterion):
+        total_loss = []
+        self.cond_pred_model.eval()
+        with torch.no_grad():
+            for batch_x, batch_y, batch_x_mark, batch_y_mark in data_loader:
+                batch_x = batch_x.float().to(self.device)
+                batch_y = batch_y.float().to(self.device)
+
+                batch_x_mark = batch_x_mark.float().to(self.device)
+                batch_y_mark = batch_y_mark.float().to(self.device)
+
+                dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
+                dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
+
+                y_T_mean, _, _, sigma = self.cond_pred_model(batch_x, None, dec_inp, None)
+
+                f_dim = -1 if self.args.features == 'MS' else 0
+                pred = y_T_mean[:, :, f_dim:]
+                target = batch_y[:, -self.args.pred_len:, f_dim:]
+                loss = criterion(pred, target)
+                if self.args.use_uncertainty and sigma is not None:
+                    loss = loss + (torch.log(sigma[:, :, f_dim:]) +
+                                   (target - pred).pow(2) /
+                                   (2 * sigma[:, :, f_dim:].pow(2))).mean()
+                total_loss.append(loss.detach().cpu())
+        self.cond_pred_model.train()
+        return np.average(total_loss)
+
     def vali(self, vali_data, vali_loader, criterion):
         total_loss = []
         self.model.eval()
@@ -204,6 +249,102 @@ class Exp_Main(Exp_Basic):
         total_loss = np.average(total_loss)
         self.model.train()
         return total_loss
+
+    def pretrain_condition(self, setting):
+        train_data, train_loader = self._get_data(flag='train')
+        vali_data, vali_loader = self._get_data(flag='val')
+        test_data, test_loader = self._get_data(flag='test')
+
+        default_condition_path = self._default_condition_checkpoint_dir()
+        setting_condition_path = self._setting_condition_checkpoint_dir(setting)
+
+        if not os.path.exists(default_condition_path):
+            os.makedirs(default_condition_path)
+        if not os.path.exists(setting_condition_path):
+            os.makedirs(setting_condition_path)
+
+        time_now = time.time()
+        train_steps = len(train_loader)
+        early_stopping = EarlyStopping(patience=self.args.patience, verbose=True)
+        model_optim = optim.Adam(self.cond_pred_model.parameters(), lr=self.args.learning_rate)
+        criterion = self._select_criterion()
+
+        if self.args.use_amp:
+            scaler = torch.cuda.amp.GradScaler()
+
+        best_condition_model_path = os.path.join(default_condition_path, 'checkpoint.pth')
+
+        for epoch in range(self.args.train_epochs):
+            epoch_time = time.time()
+            iter_count = 0
+            train_loss = []
+            self.cond_pred_model.train()
+
+            for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(train_loader):
+                iter_count += 1
+                model_optim.zero_grad()
+
+                batch_x = batch_x.float().to(self.device)
+                batch_y = batch_y.float().to(self.device)
+                batch_x_mark = batch_x_mark.float().to(self.device)
+                batch_y_mark = batch_y_mark.float().to(self.device)
+
+                dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
+                dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
+
+                y_T_mean, _, _, sigma = self.cond_pred_model(batch_x, None, dec_inp, None)
+
+                f_dim = -1 if self.args.features == 'MS' else 0
+                pred = y_T_mean[:, :, f_dim:]
+                target = batch_y[:, -self.args.pred_len:, f_dim:]
+                loss = criterion(pred, target)
+                if self.args.use_uncertainty and sigma is not None:
+                    loss = loss + (torch.log(sigma[:, :, f_dim:]) +
+                                   (target - pred).pow(2) /
+                                   (2 * sigma[:, :, f_dim:].pow(2))).mean()
+
+                train_loss.append(loss.item())
+
+                if (i + 1) % 100 == 0:
+                    print("	iters: {0}, epoch: {1} | condition loss: {2:.7f}".format(i + 1, epoch + 1, loss.item()))
+                    speed = (time.time() - time_now) / iter_count
+                    left_time = speed * ((self.args.train_epochs - epoch) * train_steps - i)
+                    print('	speed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
+                    iter_count = 0
+                    time_now = time.time()
+
+                if self.args.use_amp:
+                    scaler.scale(loss).backward()
+                    scaler.step(model_optim)
+                    scaler.update()
+                else:
+                    loss.backward()
+                    model_optim.step()
+
+            print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
+            train_loss = np.average(train_loss)
+            vali_loss = self.vali_condition(vali_loader, criterion)
+            test_loss = self.vali_condition(test_loader, criterion)
+
+            print(
+                "Epoch: {0}, Steps: {1} | Condition Train Loss: {2:.7f}  Vali Loss: {3:.7f} Test Loss: {4:.7f}".format(
+                    epoch + 1, train_steps, train_loss, vali_loss, test_loss))
+
+            early_stopping(vali_loss, self.cond_pred_model, default_condition_path)
+
+            if math.isnan(train_loss):
+                break
+
+            if early_stopping.early_stop:
+                print("Early stopping")
+                break
+
+        if os.path.exists(best_condition_model_path):
+            best_state_dict = torch.load(best_condition_model_path, map_location='cpu')
+            self.cond_pred_model.load_state_dict(best_state_dict, strict=False)
+            self._sync_condition_checkpoint(best_condition_model_path, setting)
+            print('Saved condition checkpoint to {}'.format(best_condition_model_path))
+            print('Copied condition checkpoint to {}'.format(os.path.join(setting_condition_path, 'checkpoint.pth')))
 
     def train(self, setting):
         train_data, train_loader = self._get_data(flag='train')
@@ -468,21 +609,24 @@ class Exp_Main(Exp_Basic):
         if test:
             print('loading model')
             self.model.load_state_dict(
-                torch.load(os.path.join('checkpoints/' + setting, 'checkpoint.pth'), map_location=self.device))
-            condition_path=os.path.join(self.args.pretrain_checkpoints, self.args.model)
-            # if self.args.decomposition:
-            #    best_condition_model_path = condition_path +'/' +str('decomposition') +'/' + self.args.data_name+'/' +str(self.args.pred_len)+ '/'+ 'checkpoint.pth'  # 指定模型检查点的路径
-            # else:
-            #     best_condition_model_path = condition_path+'/' +str('all') +'/' + self.args.data_name+'/' +str(self.args.pred_len)+ '/'+ 'checkpoint.pth'  # 指定模型检查点的路径
-
-            best_condition_model_path = os.path.join(self.args.pretrain_checkpoints + setting, 'checkpoint.pth')
+                torch.load(os.path.join('checkpoints/' + setting, 'checkpoint.pth'), map_location='cpu'))
+            setting_condition_model_path = os.path.join(self._setting_condition_checkpoint_dir(setting), 'checkpoint.pth')
+            default_condition_model_path = os.path.join(self._default_condition_checkpoint_dir(), 'checkpoint.pth')
+            if os.path.exists(setting_condition_model_path):
+                best_condition_model_path = setting_condition_model_path
+            elif os.path.exists(default_condition_model_path):
+                best_condition_model_path = default_condition_model_path
+            else:
+                raise FileNotFoundError(
+                    'Missing condition checkpoint. Looked for {} and {}'.format(
+                        setting_condition_model_path, default_condition_model_path))
             print(best_condition_model_path)
-            
-            self.cond_pred_model.load_state_dict(torch.load(best_condition_model_path, map_location=self.device), strict=False)
+
+            self.cond_pred_model.load_state_dict(torch.load(best_condition_model_path, map_location='cpu'), strict=False)
             self.cond_pred_model = self.cond_pred_model.to(self.device)
         preds = []
         trues = []
-        folder_path = '../test_results/' + setting + '/'
+        folder_path = os.path.join('results', setting)
         if not os.path.exists(folder_path):
             os.makedirs(folder_path)
 
@@ -657,9 +801,25 @@ class Exp_Main(Exp_Basic):
 
         print('CARD metrc: QICE:{:.4f}%'.format(qice_coverage_ratio * 100))
 
+        metrics = {
+            'setting': setting,
+            'total_samples': float(total_samples),
+            'crps': float(avg_crps),
+            'crps_sum': float(crps_sum),
+            'mse': float(mse_total),
+            'mae': float(mae_total),
+            'qice_percent': float(qice_coverage_ratio * 100),
+        }
 
-        # np.save(folder_path + 'pred.npy', preds_save)
-        # np.save(folder_path + 'true.npy', trues_save)
+        with open(os.path.join(folder_path, 'metrics.json'), 'w', encoding='utf-8') as f:
+            json.dump(metrics, f, indent=2, ensure_ascii=False)
+
+        with open(os.path.join(folder_path, 'metrics.txt'), 'w', encoding='utf-8') as f:
+            for key, value in metrics.items():
+                f.write(f'{key}: {value}\n')
+
+        np.save(os.path.join(folder_path, 'pred.npy'), preds_save)
+        np.save(os.path.join(folder_path, 'true.npy'), trues_save)
 
     def compute_true_coverage_by_gen_QI(self, config, dataset_object, all_true_y, all_generated_y):
             n_bins = config.testing.n_bins
