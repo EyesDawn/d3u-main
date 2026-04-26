@@ -665,6 +665,11 @@ class Exp_Main(Exp_Basic):
 
                 gen_y_box = []
                 gen_y_bias_box=[]
+
+                # start = time.time()
+                # print(batch_x.shape)
+                # print(batch_x_mark.shape)
+                
                 for _ in range(self.model.diffusion_config.testing.n_z_samples_depart):
 
                     # sample
@@ -727,9 +732,13 @@ class Exp_Main(Exp_Basic):
 
                     gen_y_bias_box.append(gen_y_bias.cpu().numpy())
                     gen_y_box.append(gen_y.cpu().numpy())
+
                 outputs = np.concatenate(gen_y_box, axis=1)
                 outputs_bias= np.concatenate(gen_y_bias_box, axis=1)
 
+                # end = time.time()
+                # print(end-start)
+                # assert 0
 
                 f_dim = -1 if self.args.features == 'MS' else 0
                 outputs = outputs[:, :, -self.args.pred_len:, f_dim:]
