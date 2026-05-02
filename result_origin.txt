@@ -1,6 +1,22 @@
 ========================
 origin
 ========================
+setting: False_ts100_PatchDN_96_192_SVQ_ETTh1_ftM_sl96_ll48_pl192_dm512_nh8_el2_dl1_df512_fc3_ebtimeF_dtTrue_Exp_0
+total_samples: 2689.0
+crps: 0.33150587672071646
+crps_sum: 0.8304214978291797
+mse: 0.4446771762929649
+mae: 0.4379478277061543
+qice_percent: 1.586750584391436
+
+setting: False_ts100_PatchDN_96_192_SVQ_ETTh2_ftM_sl96_ll48_pl192_dm512_nh8_el2_dl1_df512_fc3_ebtimeF_dtTrue_Exp_0
+total_samples: 2689.0
+crps: 0.38109884563108865
+crps_sum: 0.17947766493395323
+mse: 0.5060641854037224
+mae: 0.5040679942856672
+qice_percent: 4.557605721723423
+
 >>>>>>>testing : False_ts100_PatchDN_96_192_SVQ_ETTm1_ftM_sl96_ll48_pl192_dm512_nh8_el2_dl1_df512_
 fc3_ebtimeF_dtTrue_Exp_0<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<                                         
 test 11329                                                                                        
