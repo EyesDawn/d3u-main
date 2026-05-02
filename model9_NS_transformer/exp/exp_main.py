@@ -93,7 +93,7 @@ class Exp_Main(Exp_Basic):
         model = diffuMTS.Model(self.args).float()
 
         cond_pred_model =self.cond_model_dict[self.args.model].Model(self.args).float()
-        condition_path=os.path.join(self.args.pretrain_checkpoints, self.args.model)
+        condition_path=os.path.join(self._condition_checkpoint_root(), self.args.model)
         if self.args.decomposition:
            best_condition_model_path = condition_path +'/' +str('decomposition') +'/' + self.args.data_name+'/' +str(self.args.pred_len)+ '/'+ 'checkpoint.pth'  # 指定模型检查点的路径
         else:
@@ -132,12 +132,21 @@ class Exp_Main(Exp_Basic):
         criterion = nn.MSELoss()
         return criterion
 
+    def _condition_checkpoint_root(self):
+        if not self.args.use_uncertainty:
+            return self.args.pretrain_checkpoints
+
+        root = os.path.normpath(self.args.pretrain_checkpoints)
+        if os.path.basename(root) == 'use_uncertainty':
+            return self.args.pretrain_checkpoints
+        return os.path.join(self.args.pretrain_checkpoints, 'use_uncertainty')
+
     def _default_condition_checkpoint_dir(self):
         scope = 'decomposition' if self.args.decomposition else 'all'
-        return os.path.join(self.args.pretrain_checkpoints, self.args.model, scope, self.args.data_name, str(self.args.pred_len))
+        return os.path.join(self._condition_checkpoint_root(), self.args.model, scope, self.args.data_name, str(self.args.pred_len))
 
     def _setting_condition_checkpoint_dir(self, setting):
-        return os.path.join(self.args.pretrain_checkpoints, setting)
+        return os.path.join(self._condition_checkpoint_root(), setting)
 
     def _sync_condition_checkpoint(self, source_path, setting):
         if not os.path.exists(source_path):
@@ -352,7 +361,7 @@ class Exp_Main(Exp_Basic):
         test_data, test_loader = self._get_data(flag='test')
 
         path = os.path.join(self.args.checkpoints, setting)
-        condition_path=os.path.join(self.args.pretrain_checkpoints, setting)
+        condition_path = self._setting_condition_checkpoint_dir(setting)
 
         if not os.path.exists(path):
             os.makedirs(path)
@@ -609,7 +618,7 @@ class Exp_Main(Exp_Basic):
         if test:
             print('loading model')
             self.model.load_state_dict(
-                torch.load(os.path.join('checkpoints/' + setting, 'checkpoint.pth'), map_location='cpu'))
+                torch.load(os.path.join(self.args.checkpoints, setting, 'checkpoint.pth'), map_location='cpu'))
             setting_condition_model_path = os.path.join(self._setting_condition_checkpoint_dir(setting), 'checkpoint.pth')
             default_condition_model_path = os.path.join(self._default_condition_checkpoint_dir(), 'checkpoint.pth')
             if os.path.exists(setting_condition_model_path):

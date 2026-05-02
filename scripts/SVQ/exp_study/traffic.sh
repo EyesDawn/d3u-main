@@ -10,7 +10,7 @@ data_name='custom'
 
 random_seed=2021
 python -u ./runner9_NS_transformer.py \
-        --is_training 1\
+        --is_training 0\
         --checkpoints ./checkpoints/use_uncertainty/ \
         --seed $random_seed \
         --root_path $root_path_name \

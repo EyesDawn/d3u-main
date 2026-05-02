@@ -9,6 +9,7 @@ data_name=ETTh1
 
 random_seed=2021
 python -u ./runner9_NS_transformer.py \
+        --is_training 0\
         --seed $random_seed \
         --root_path $root_path_name \
         --data_path $data_path_name \

@@ -12,8 +12,7 @@ random_seed=2021
 
 
 python -u ./runner9_NS_transformer.py \
-        --is_training 1\
-        --checkpoints ./checkpoints/use_uncertainty/ \
+        --is_training 0\
         --seed $random_seed \
         --root_path $root_path_name \
         --data_path $data_path_name \
@@ -52,6 +51,6 @@ python -u ./runner9_NS_transformer.py \
         --codebook_size 256 \
         --type_sample 'DPM_solver'\
         --DPMsolver_step 20\
-        --gpu 0 \
+        --gpu 2 \
         --parameterization "x_start"\
         --bias  | tee -a logs/$model_name'_'$model_id_name.log
