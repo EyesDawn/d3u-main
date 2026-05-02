@@ -14,7 +14,7 @@ python -u ./runner9_NS_transformer.py \
         --seed $random_seed \
         --root_path $root_path_name \
         --data_path $data_path_name \
-        --model_id $model_id_name_$seq_len'_'$pred_len \
+        --model_id ${model_id_name}_${seq_len}_${pred_len} \
         --model $model_name \
         --data_name $model_id_name\
         --data $data_name \
@@ -53,4 +53,4 @@ python -u ./runner9_NS_transformer.py \
         --DPMsolver_step 20\
         --gpu 2 \
         --parameterization "x_start"\
-        --bias \
+        --bias | tee -a logs/$model_name'_'$model_id_name.log

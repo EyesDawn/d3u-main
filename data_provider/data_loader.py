@@ -438,10 +438,27 @@ class Dataset_Solar(Dataset):
     def __read_data__(self):
         self.scaler = StandardScaler()
         df_raw = []
-        with open(os.path.join(self.root_path, self.data_path), "r", encoding='utf-8') as f:
-            for line in f.readlines():
-                line = line.strip('\n').split(',')
-                data_line = np.stack([float(i) for i in line])
+        data_file = os.path.join(self.root_path, self.data_path)
+        expected_cols = None
+        with open(data_file, "r", encoding='utf-8') as f:
+            for line_no, line in enumerate(f, 1):
+                line = line.strip()
+                if not line:
+                    continue
+                fields = [field.strip() for field in line.split(',')]
+                if fields and fields[-1] == '':
+                    fields = fields[:-1]
+                if expected_cols is None:
+                    expected_cols = len(fields)
+                elif len(fields) != expected_cols:
+                    raise ValueError(
+                        f'Inconsistent column count in {data_file} at line {line_no}: '
+                        f'expected {expected_cols}, got {len(fields)}'
+                    )
+                try:
+                    data_line = np.stack([float(i) for i in fields])
+                except ValueError as exc:
+                    raise ValueError(f'Invalid numeric value in {data_file} at line {line_no}: {exc}') from exc
                 df_raw.append(data_line)
         df_raw = np.stack(df_raw, 0)
         df_raw = pd.DataFrame(df_raw)

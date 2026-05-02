@@ -68,20 +68,26 @@ def quantile_loss(target, forecast, q: float) -> float:
     )
 
 
-def calc_quantile_CRPS_sum(all_preds, true): 
+def calc_quantile_CRPS_sum(all_preds, true):
+    forecast = np.asarray(all_preds)
+    target = np.asarray(true)
 
-    target = true.sum(-1)
-    forecast = all_preds
+    if forecast.ndim != target.ndim + 1:
+        raise ValueError(
+            "Expected forecast to have one extra sample dimension: "
+            f"forecast shape {forecast.shape}, target shape {target.shape}"
+        )
+
+    if target.ndim >= 3:
+        target = target.sum(-1)
+        forecast = forecast.sum(-1)
 
     quantiles = np.arange(0.05, 1.0, 0.05)
     denom = np.sum(np.abs(target))
     CRPS = 0
     for i in range(len(quantiles)):
-        #targer(b,seq_len)
-        #forecast(b,sampe,seq_len)
-        q_pred = np.quantile(forecast.sum(-1),quantiles[i], axis=1)
-      #   print(q_pred.shape)
-      #   print(target.shape)
+        # target: (batch, seq_len), forecast: (batch, sample, seq_len)
+        q_pred = np.quantile(forecast, quantiles[i], axis=1)
         q_loss = quantile_loss(target, q_pred, quantiles[i])
-        CRPS += q_loss /denom
+        CRPS += q_loss / denom
     return CRPS / len(quantiles)
